@@ -1,5 +1,24 @@
 [
   {
+    "sp": 1,
+    "special": true,
+    "sport": "mma",
+    "event": "블랙컴뱃 17",
+    "fighter_a": "추성훈",
+    "fighter_b": "크리스 리벤",
+    "match": "추성훈 vs 크리스 리벤",
+    "creator": {
+      "pick": "추성훈",
+      "method": "KO/TKO"
+    },
+    "kickoff": "2026-11-21T13:00+09:00",
+    "hash": "54a3cd2a95cee625e69529ab13aaed327fef21cde8e9249c9ed2b3eb402264dc",
+    "video": null,
+    "revealed_text": null,
+    "human": null,
+    "result": null
+  },
+  {
     "ep": 1,
     "sport": "football",
     "match": "맨시티 vs 풀럼",
