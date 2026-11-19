@@ -1,0 +1,10 @@
+# 원문 보관 폴더 — 절대 올리지 않음
+private/
+
+# 내려받는 경기 데이터 (fetch_data.py로 다시 받음)
+model/data/
+
+__pycache__/
+*.pyc
+.DS_Store
+.vercel
