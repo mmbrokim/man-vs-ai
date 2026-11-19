@@ -3,6 +3,7 @@ private/
 
 # 내려받는 경기 데이터 (fetch_data.py로 다시 받음)
 model/data/
+model_mma/data/
 
 __pycache__/
 *.pyc
