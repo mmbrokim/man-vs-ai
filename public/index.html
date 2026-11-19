@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Man vs AI · AI 답 봉인 확인</title>
+  <meta name="description" content="Man vs AI 시리즈에서 AI의 예측이 나중에 바뀌지 않았는지 누구나 직접 확인할 수 있는 페이지입니다.">
+  <meta name="theme-color" content="#FAF3E8">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23C8743A' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='14' rx='2'/%3E%3Cpath d='m3 7 9 6 9-6'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 아이콘 모음 (외부 파일 없이 이 페이지 안에 들어 있습니다) -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></symbol>
+    <symbol id="i-mail-open" viewBox="0 0 24 24"><path d="M3 9.5 12 4l9 5.5V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="m3 9.5 9 6 9-6"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="4"/><path d="m10 9 5 3-5 3z"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="m6 13 6 6 6-6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7"/><path d="M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></symbol>
+  </svg>
+
+  <main class="wrap">
+  <div id="view-list">
+    <header class="hero">
+      <div class="hero-icon"><svg><use href="#i-mail"/></svg></div>
+      <h1>Man vs AI 봉인 확인</h1>
+      <p>AI의 예측이 나중에 바뀌지 않았는지 직접 확인할 수 있습니다.</p>
+    </header>
+
+    <section id="scoreboard" class="card scoreboard" aria-label="누적 스코어" hidden>
+      <div class="score-row">
+        <div class="side"><span class="who">사람</span><span id="score-human" class="num">0</span></div>
+        <span class="colon">:</span>
+        <div class="side"><span id="score-ai" class="num">0</span><span class="who">AI</span></div>
+      </div>
+      <p id="score-sub" class="score-sub"></p>
+    </section>
+
+    <section aria-labelledby="list-title">
+      <h2 id="list-title">회차</h2>
+      <p class="hint">회차를 누르면 봉인값과 사람들의 선택을 자세히 볼 수 있습니다.</p>
+      <div id="seal-list" class="seal-list">
+        <p class="empty">회차 목록을 불러오는 중입니다.</p>
+      </div>
+    </section>
+
+
+    <section class="card explain" aria-labelledby="explain-title">
+      <h2 id="explain-title">어떻게 확인하는 건가요?</h2>
+
+      <h3>해시는 글자의 지문입니다</h3>
+      <p>SHA-256은 어떤 글이든 64자리 값으로 바꿉니다. 같은 글은 언제 어디서 바꿔도 같은 값이 나오고,
+        글자가 하나만 달라도 완전히 다른 값이 나옵니다. 반대로 값만 보고 원래 글을 알아낼 수는 없습니다.</p>
+
+      <h3>봉인과 공개</h3>
+      <ol>
+        <li>경기 전, AI의 답을 <span class="mono">EP회차|답|랜덤문자열</span> 형태로 적고 그 해시를 영상에 넣습니다.</li>
+        <li>답은 공개하지 않습니다. 해시만으로는 답을 알 수 없습니다.</li>
+        <li>경기 후, 결과 편에서 원문을 공개합니다.</li>
+        <li>누구나 원문을 해시로 바꿔서 영상 속 봉인값과 같은지 확인할 수 있습니다. 답을 바꿨다면 값이 달라집니다.</li>
+      </ol>
+
+      <h3>랜덤 문자열을 붙이는 이유</h3>
+      <p>답은 홈승, 무, 원정승 세 가지뿐입니다. 랜덤 문자열 없이 봉인하면 세 가지를 모두 해시로 바꿔 보는 것만으로
+        답을 미리 알아낼 수 있습니다. 그래서 매번 무작위 16자를 붙여 미리 맞혀 보는 것을 막습니다.</p>
+
+      <h3>다른 곳에서도 확인할 수 있습니다</h3>
+      <p>이 페이지를 믿지 않아도 됩니다. 원문을 다른 SHA-256 변환 사이트나 컴퓨터 명령어로 바꿔 봐도 같은 값이 나옵니다.</p>
+      <pre class="mono code">printf '%s' 'EP1|홈승|aB3dE5fG7hJ9kL2m' | shasum -a 256</pre>
+      <p class="small">계산 규칙: 앞뒤 공백을 지우고, 유니코드 NFC로 정규화한 뒤, UTF-8로 해시합니다.
+        NFC 정규화는 Mac에서 한글 자모가 분리되어 값이 달라지는 문제를 막기 위한 것입니다.</p>
+
+      <h3>사람들의 답은 이렇게 정합니다</h3>
+      <ol>
+        <li>영상에 남긴 최상위 댓글만 셉니다. 답글과 채널 주인 댓글은 세지 않습니다.</li>
+        <li>킥오프 전에 쓴 댓글만 셉니다. 킥오프 뒤에 수정된 댓글도 제외합니다.</li>
+        <li>이긴다고 생각하는 팀 이름, 또는 '무승부'(또는 '무')를 답으로 인정합니다. '홈승', '원정승'도 인정합니다.
+          서로 다른 답이 섞인 댓글은 무효입니다.</li>
+        <li>한 계정당 한 표입니다. 여러 번 남겼다면 유효한 답이 있는 마지막 댓글을 셉니다.</li>
+        <li>가장 많이 나온 답이 사람의 답입니다. 동률이면 실제로 더 자주 일어나는 순서인 홈팀 승, 원정팀 승, 무승부 순으로 정합니다.
+          AI 모델도 같은 순서를 씁니다.</li>
+      </ol>
+      <p class="small">집계에 쓴 댓글 ID와 선택은 회차마다 CSV 파일로 공개합니다. 닉네임은 넣지 않습니다.</p>
+
+      <h3>이 페이지는 아무것도 보내지 않습니다</h3>
+      <p>해시 계산은 브라우저 안에서만 이루어집니다. 코드는 압축하지 않은 그대로 두었으니,
+        '페이지 소스 보기'로 <span class="mono">app.js</span>를 직접 열어 확인할 수 있습니다.</p>
+    </section>
+
+    <footer class="foot">Man vs AI · 사람 vs AI 축구 예측 대결</footer>
+  </div>
+
+  <div id="view-detail" hidden>
+    <a class="back" href="#">← 전체 회차</a>
+    <div id="detail-card"></div>
+    <section id="verify" class="card verify" aria-labelledby="verify-title">
+      <h2 id="verify-title">원문 확인하기</h2>
+      <p class="hint">결과 편에서 공개된 원문을 그대로 붙여 넣으세요.</p>
+      <label class="field-label" for="text-input">원문</label>
+      <input id="text-input" class="field mono" type="text" placeholder="EP1|홈승|aB3dE5fG7hJ9kL2m"
+             autocomplete="off" autocapitalize="off" spellcheck="false">
+      <details class="video-hash">
+        <summary>영상 속 봉인값과 직접 비교하기 (선택)</summary>
+        <label class="field-label" for="hash-input">영상에서 본 봉인값</label>
+        <input id="hash-input" class="field mono" type="text" placeholder="64자리 봉인값"
+               autocomplete="off" autocapitalize="off" spellcheck="false">
+      </details>
+      <button id="verify-btn" class="btn primary" type="button">해시 계산하기</button>
+
+      <div id="result" class="result" hidden>
+        <p class="field-label">계산된 해시 (SHA-256)</p>
+        <p id="result-hash" class="hash mono"></p>
+        <div id="result-verdicts"></div>
+      </div>
+      <p class="note">SHA-256은 표준 방식이라 다른 해시 변환 사이트에서도 같은 값이 나옵니다.</p>
+    </section>
+  </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

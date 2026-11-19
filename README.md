@@ -3,7 +3,76 @@
 유튜브 쇼츠 시리즈 **Man vs AI**(사람 vs AI 축구 승부 예측 대결)에 쓰는 코드입니다.
 
 - `model/` — AI의 예측을 만드는 머신러닝 모델
-- 봉인 검증 페이지 — 준비 중 (AI의 답을 SHA-256 해시로 봉인하고, 결과 편에서 누구나 확인할 수 있게 하는 페이지)
+- `public/` — 봉인 검증 페이지 (Vercel에 배포되는 유일한 폴더)
+- `tools/` — 봉인·집계·공개 스크립트 (내 컴퓨터에서만 실행)
+- `private/` — 봉인 원문, API 키 보관 (git, Vercel 모두 올라가지 않음)
+
+## 봉인 검증
+
+AI의 답을 경기 전에 SHA-256 해시로 봉인해 영상에 넣고, 결과 편에서 원문을 공개합니다.
+누구나 원문을 해시로 바꿔 영상 속 봉인값과 같은지 확인할 수 있습니다.
+
+- 원문 형식: `EP{회차}|{답}|{랜덤 16자}` 예) `EP1|홈승|aB3dE5fG7hJ9kL2m`
+- 답: `홈승`, `무`, `원정승` 중 하나
+- 계산 규칙: 앞뒤 공백 제거 → 유니코드 NFC 정규화 → UTF-8 → SHA-256
+  (페이지의 `public/app.js`와 `tools/common.py`가 같은 규칙을 씁니다)
+
+### 회차 진행 순서
+
+```bash
+# 1. 예측 (경기 전)
+python model/fetch_data.py
+python model/predict.py 맨시티 풀럼 --date 2026-11-21
+
+# 2. 봉인 (킥오프 전) — 원문은 private/에만, 해시는 public/seals.json에 저장
+python tools/seal.py --ep 1 --match "맨시티 vs 풀럼" --kickoff "2026-11-21 21:30" --answer 홈승
+git add public/seals.json && git commit -m "EP1 봉인" && git push
+#    → 출력된 봉인값을 영상에 넣고 업로드
+
+# 3. 영상 링크 추가 (업로드 후)
+python tools/video.py 1 https://youtube.com/shorts/xxxx
+git add public/seals.json && git commit -m "EP1 영상 링크" && git push
+
+# 4. 사람들 선택 집계 (킥오프 직후) — 킥오프 전 댓글만 셈
+python tools/tally.py 1 https://youtube.com/shorts/xxxx
+git add public && git commit -m "EP1 집계" && git push
+#    (API를 못 쓸 때: python tools/votes.py 1 --home 120 --draw 30 --away 50)
+
+# 5. 공개 (결과 편) — 원문을 다시 해시해 봉인값과 같을 때만 기록, 스코어는 홈-원정
+python tools/reveal.py 1 --score 2-1
+git add public && git commit -m "EP1 공개" && git push
+```
+
+### 댓글 집계 규칙
+
+1. 최상위 댓글만 셉니다 (답글, 채널 주인 댓글 제외).
+2. 킥오프 전에 쓴 댓글만 셉니다. 킥오프 뒤에 수정된 댓글도 제외합니다.
+3. `홈승`, `원정승`, `무`(또는 `무승부`), 두 팀 이름을 답으로 인정합니다. 팀 이름은 그 팀의 승리입니다.
+   서로 다른 답이 섞인 댓글은 무효입니다. `무조건`처럼 단어 속의 '무'는 세지 않습니다.
+4. 한 계정당 한 표. 여러 번 남겼다면 유효한 답이 있는 마지막 댓글을 셉니다.
+5. 가장 많이 나온 답이 사람의 답. 동률이면 홈승 > 원정승 > 무 (실제로 더 자주 일어나는 순서, AI 모델과 같은 기준).
+
+집계에 쓴 댓글 ID와 선택은 `public/votes/EP{회차}.csv`로 공개합니다. 닉네임은 넣지 않습니다.
+
+### 유튜브 API 키 (무료, 처음 한 번)
+
+1. [Google Cloud Console](https://console.cloud.google.com/)에서 프로젝트 만들기
+2. API 및 서비스 → 라이브러리 → **YouTube Data API v3** 사용 설정
+3. 사용자 인증 정보 → API 키 만들기
+4. 키를 `private/youtube_api_key.txt`에 한 줄로 저장 (깃허브에 올라가지 않음)
+
+댓글 100개당 할당량 1을 씁니다. 기본 할당량은 하루 10,000이라 충분합니다.
+
+push하면 Vercel이 자동으로 다시 배포합니다.
+
+**주의**: `private/originals.json`은 어디에도 백업되지 않습니다. 잃어버리면 원문을 공개할 수 없으니,
+결과 편 전까지 이 파일을 지우지 마세요. (`seal.py`는 `private/`가 git에서 제외되어 있지 않으면 실행을 멈춥니다.)
+
+### Vercel 연결 (처음 한 번)
+
+1. Vercel → Add New → Project → 이 저장소 선택
+2. Framework Preset: **Other**, 나머지 설정은 그대로 (`vercel.json`이 `public/` 폴더만 배포하도록 지정합니다)
+3. Deploy
 
 ## 예측 모델
 
