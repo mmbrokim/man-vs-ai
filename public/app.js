@@ -70,7 +70,7 @@ function label(s, answer) {
   return answer;
 }
 
-// AI의 답은 공개된 원문(EP1|홈승|...)의 두 번째 칸에서만 읽습니다. 공개 전에는 알 수 없습니다.
+// AI의 답은 공개된 원문(EP회차|답|랜덤 문자열)의 두 번째 칸에서만 읽습니다. 공개 전에는 알 수 없습니다.
 function aiPick(s) {
   return s.revealed_text ? s.revealed_text.split("|")[1] : null;
 }
