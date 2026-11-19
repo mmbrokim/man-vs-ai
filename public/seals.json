@@ -1,6 +1,7 @@
 [
   {
     "ep": 1,
+    "sport": "football",
     "match": "맨시티 vs 풀럼",
     "kickoff": "2026-11-21T21:30+09:00",
     "hash": "7c29c560acd0442e649a0367d6b4f11caca9a5e4085b1a1e71a57782577bb1e2",

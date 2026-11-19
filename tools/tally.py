@@ -9,10 +9,16 @@ API 키 (무료): 환경변수 YT_API_KEY 또는 private/youtube_api_key.txt 파
 집계 규칙 (페이지에도 같은 내용이 적혀 있습니다):
     1) 영상의 최상위 댓글만 셉니다. 답글과 채널 주인 댓글은 세지 않습니다.
     2) 킥오프 전에 쓴 댓글만 셉니다. 킥오프 뒤에 수정된 댓글도 제외합니다.
-    3) 인정하는 답: '홈승', '원정승', '무'(또는 '무승부'), 그리고 두 팀 이름.
-       팀 이름을 쓰면 그 팀의 승리로 봅니다. 서로 다른 답이 섞인 댓글은 무효입니다.
+    3) 인정하는 답
+       축구:   '홈승', '원정승', '무'(또는 '무승부'), 그리고 두 팀 이름 (팀 이름 = 그 팀의 승리)
+       격투기: 이길 선수 이름(성만 써도 인정) + 승리 방식(KO/TKO, 서브미션, 판정) 둘 다 있어야 합니다.
+               예) '페레이라 KO', '안칼라예프 판정승'. 무승부는 선택지에 없습니다.
+       서로 다른 답(두 선수, 두 방식 등)이 섞인 댓글은 무효입니다.
     4) 한 계정당 한 표. 여러 번 남겼다면 유효한 답이 있는 마지막 댓글을 셉니다.
-    5) 가장 많이 나온 답이 사람의 답입니다. 동률이면 홈승 > 원정승 > 무 순서로 정합니다.
+    5) 가장 많이 나온 답이 사람의 답입니다.
+       축구는 동률이면 홈승 > 원정승 > 무.
+       격투기는 먼저 선수별 표를 합쳐 승자를 정하고(동률이면 레드 코너), 그 선수에게 간 표 중
+       가장 많은 방식을 고릅니다(동률이면 판정 > KO/TKO > 서브미션).
 
 결과:
     public/seals.json 의 human 항목에 표 수와 비율을 기록하고,
@@ -27,8 +33,8 @@ import re
 import urllib.parse
 import urllib.request
 
-from common import (ANSWERS, PRIVATE_DIR, ROOT, SEALS, find, load_json, majority, normalize,
-                    parse_kickoff_iso, save_json)
+from common import (FOOTBALL, PRIVATE_DIR, ROOT, SEALS, choices, find, load_json, majority,
+                    normalize, parse_kickoff_iso, save_json, sport_of, vote_key)
 
 API = "https://www.googleapis.com/youtube/v3/commentThreads"
 VOTES_DIR = ROOT / "public" / "votes"
@@ -75,25 +81,57 @@ def fetch_comments(video_id, key):
 
 
 # ---------- 답 읽기 ----------
-def answer_patterns(match):
-    """'맨시티 vs 풀럼' -> 답별 정규식."""
-    parts = re.split(r"\s+vs\.?\s+", match, flags=re.I)
-    if len(parts) != 2:
-        raise SystemExit(f"경기 이름에서 두 팀을 찾지 못했습니다: '{match}' ('홈 vs 원정' 형식이어야 합니다)")
-    home, away = (normalize(p) for p in parts)
-    not_hangul = r"(?<![가-힣])", r"(?![가-힣])"
-    return {
-        "홈승": [re.compile("홈승"), re.compile(re.escape(home))],
-        "원정승": [re.compile("원정승"), re.compile(re.escape(away))],
-        # '무조건', '무리' 같은 단어 속의 '무'는 세지 않도록 앞뒤가 한글이 아닐 때만 인정
-        "무": [re.compile("무승부"), re.compile(not_hangul[0] + "무" + not_hangul[1])],
-    }
+# '무조건', '무리' 같은 단어 속의 '무'는 세지 않도록 앞뒤가 한글이 아닐 때만 인정
+LONE_MU = re.compile(r"(?<![가-힣])무(?![가-힣])")
 
 
-def read_answer(text, patterns):
-    text = normalize(text)
+def answer_patterns(seal):
+    """회차 -> 답별 정규식."""
+    if sport_of(seal) == FOOTBALL:
+        parts = re.split(r"\s+vs\.?\s+", seal["match"], flags=re.I)
+        if len(parts) != 2:
+            raise SystemExit(f"경기 이름에서 두 팀을 찾지 못했습니다: '{seal['match']}' ('홈 vs 원정' 형식이어야 합니다)")
+        home, away = (normalize(p) for p in parts)
+        return {
+            "홈승": [re.compile("홈승"), re.compile(re.escape(home))],
+            "원정승": [re.compile("원정승"), re.compile(re.escape(away))],
+            "무": [re.compile("무승부"), LONE_MU],
+        }
+
+    a, b = seal["fighter_a"], seal["fighter_b"]
+
+    def names(me, other):
+        """전체 이름 + 성(마지막 단어). 성이 두 글자 이상이고 상대 이름에 없을 때만 성을 인정합니다."""
+        out = [re.compile(re.escape(me))]
+        last = me.split()[-1]
+        if last != me and len(last) >= 2 and last not in other:
+            out.append(re.compile(re.escape(last)))
+        return out
+
+    return {a: names(a, b), b: names(b, a)}
+
+
+# 격투기 승리 방식. 영어는 대소문자 구분 없이, 앞뒤가 영문자가 아닐 때만 인정합니다.
+METHOD_PATTERNS = {
+    "KO/TKO": [re.compile(r"(?<![A-Za-z])T?KO(?![A-Za-z])", re.I), re.compile("티케이오|케이오|넉아웃|녹아웃"), re.compile(r"knock\s*out", re.I)],
+    "서브미션": [re.compile("서브|초크|암바|길로틴|기무라|트라이앵글"),
+               re.compile(r"(?<![A-Za-z])SUB(?![A-Za-z])", re.I)],
+    "판정": [re.compile("판정|디시전"), re.compile(r"(?<![A-Za-z])DEC(ISION)?(?![A-Za-z])", re.I)],
+}
+
+
+def one_of(text, patterns):
     found = {ans for ans, pats in patterns.items() if any(p.search(text) for p in pats)}
     return found.pop() if len(found) == 1 else None
+
+
+def read_answer(text, patterns, seal):
+    text = normalize(text)
+    if sport_of(seal) == FOOTBALL:
+        return one_of(text, patterns)
+    fighter = one_of(text, patterns)
+    method = one_of(text, METHOD_PATTERNS)
+    return vote_key(fighter, method) if fighter and method else None
 
 
 def ts(s):
@@ -101,8 +139,8 @@ def ts(s):
 
 
 # ---------- 집계 ----------
-def tally(items, match, cutoff):
-    patterns = answer_patterns(match)
+def tally(items, seal, cutoff):
+    patterns = answer_patterns(seal)
     stats = {"댓글 수": len(items), "킥오프 후 작성·수정": 0, "답 없음·무효": 0, "중복 계정": 0, "채널 주인": 0}
     latest = {}  # 계정 -> (작성 시각, 댓글 ID, 답)
     for it in items:
@@ -115,7 +153,7 @@ def tally(items, match, cutoff):
         if ts(sn["publishedAt"]) >= cutoff or ts(sn.get("updatedAt", sn["publishedAt"])) >= cutoff:
             stats["킥오프 후 작성·수정"] += 1
             continue
-        ans = read_answer(sn.get("textDisplay", ""), patterns)
+        ans = read_answer(sn.get("textDisplay", ""), patterns, seal)
         if ans is None:
             stats["답 없음·무효"] += 1
             continue
@@ -127,7 +165,7 @@ def tally(items, match, cutoff):
         latest[key] = (ts(sn["publishedAt"]), top["id"], ans)
 
     rows = sorted(latest.values())
-    votes = {a: 0 for a in ANSWERS}
+    votes = {a: 0 for a in choices(seal)}
     for _, _, ans in rows:
         votes[ans] += 1
     return votes, rows, stats
@@ -146,11 +184,11 @@ def main():
     cutoff = parse_kickoff_iso(seal["kickoff"])
     now = dt.datetime.now(KST)
     if now < cutoff:
-        raise SystemExit(f"아직 킥오프 전입니다 ({cutoff:%m-%d %H:%M}). 집계는 킥오프 뒤에 합니다.")
+        raise SystemExit(f"아직 경기 시작 전입니다 ({cutoff:%m-%d %H:%M}). 집계는 시작 뒤에 합니다.")
 
     vid = video_id_from(args.video)
     items = fetch_comments(vid, api_key())
-    votes, rows, stats = tally(items, seal["match"], cutoff)
+    votes, rows, stats = tally(items, seal, cutoff)
     total = sum(votes.values())
     if total == 0:
         raise SystemExit("유효한 표가 없습니다. 집계를 기록하지 않았습니다.")
@@ -163,10 +201,12 @@ def main():
         for t, cid, ans in rows:
             w.writerow([cid, t.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), ans])
 
+    pick, method = majority(votes, seal)
     seal["human"] = {
         "votes": votes,
         "total": total,
-        "pick": majority(votes),
+        "pick": pick,
+        "method": method,
         "cutoff": seal["kickoff"],
         "counted_at": now.isoformat(timespec="seconds"),
         "source": "youtube",
@@ -179,9 +219,9 @@ def main():
     save_json(SEALS, seals)
 
     print(f"EP{args.ep} 집계 완료 · 총 {total}표")
-    for a in ANSWERS:
-        print(f"  {a:4s} {votes[a]:5d}표  {votes[a] / total:6.1%}")
-    print(f"사람의 답: {seal['human']['pick']}")
+    for a in choices(seal):
+        print(f"  {a:14s} {votes[a]:5d}표  {votes[a] / total:6.1%}")
+    print(f"사람의 답: {pick}{' ' + method if method else ''}")
     print("제외:", ", ".join(f"{k} {v}" for k, v in stats.items() if k != "댓글 수"))
     print(f"다음 순서: git add public && git commit -m \"EP{args.ep} 집계\" && git push")
 

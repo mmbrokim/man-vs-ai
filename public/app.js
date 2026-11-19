@@ -53,8 +53,21 @@ function safeUrl(url) {
   }
 }
 
-// 기록은 홈승/무/원정승으로 하지만, 화면에는 팀 이름으로 보여 줍니다.
-const ANSWERS = ["홈승", "무", "원정승"];
+// ---------- 종목 ----------
+// 회차 번호(EP)는 종목과 상관없이 하나로 이어집니다. sport 칸이 없는 회차는 축구입니다.
+// 축구 원문:   EP회차|홈승 또는 무 또는 원정승|랜덤
+// 격투기 원문: EP회차|이긴 선수|KO/TKO 또는 서브미션 또는 판정|랜덤
+//   격투기는 승자와 승리 방식을 모두 맞혀야 맞힌 것입니다. 무승부는 선택지에 없습니다.
+const SPORTS = { football: "축구", mma: "격투기" };
+const ANSWERS = ["홈승", "무", "원정승"]; // 축구 기록은 이 세 가지로 하고, 화면에는 팀 이름으로 보여 줍니다.
+const MMA_METHODS = ["KO/TKO", "서브미션", "판정"];
+// 결과에만 쓰는 값. 무승부와 무효 경기는 채점하지 않습니다.
+const MMA_DRAW = "무승부";
+const MMA_NO_CONTEST = "무효";
+
+function sportOf(s) {
+  return s.sport === "mma" ? "mma" : "football";
+}
 
 function teams(s) {
   const parts = s.match.split(/\s+vs\.?\s+/i);
@@ -63,6 +76,12 @@ function teams(s) {
 
 function label(s, answer) {
   if (!answer) return null;
+  if (sportOf(s) === "mma") {
+    if (answer === MMA_DRAW) return "무승부";
+    if (answer === MMA_NO_CONTEST) return "무효 경기";
+    if (answer.includes("|")) return answer.replace("|", " ");
+    return `${answer} 승`;
+  }
   const t = teams(s);
   if (answer === "홈승") return `${t.home} 승`;
   if (answer === "원정승") return `${t.away} 승`;
@@ -70,31 +89,56 @@ function label(s, answer) {
   return answer;
 }
 
-// AI의 답은 공개된 원문(EP회차|답|랜덤 문자열)의 두 번째 칸에서만 읽습니다. 공개 전에는 알 수 없습니다.
+// AI의 답은 공개된 원문의 두 번째 칸에서만 읽습니다. 공개 전에는 알 수 없습니다.
 function aiPick(s) {
   return s.revealed_text ? s.revealed_text.split("|")[1] : null;
+}
+
+// 격투기 원문의 세 번째 칸: AI가 고른 승리 방식
+function aiMethod(s) {
+  if (!s.revealed_text) return null;
+  const parts = s.revealed_text.split("|");
+  return parts.length === 4 ? parts[2] : null;
 }
 
 function humanPick(s) {
   return s.human ? s.human.pick : null;
 }
 
+function humanMethod(s) {
+  return s.human ? s.human.method || null : null;
+}
+
 function outcome(s) {
   return s.result ? s.result.outcome : null;
 }
 
-function mark(answer, out) {
-  if (!answer || !out) return "";
-  return answer === out ? `<span class="ok">${icon("check")}</span>` : `<span class="ng">${icon("x")}</span>`;
+// 채점하는 회차인지 (격투기의 무승부, 무효 경기는 채점하지 않습니다)
+function scored(s) {
+  const out = outcome(s);
+  return !!out && out !== MMA_NO_CONTEST && !(sportOf(s) === "mma" && out === MMA_DRAW);
+}
+
+// 맞혔는지. 격투기는 승자와 승리 방식이 모두 같아야 합니다.
+function hit(s, answer, method) {
+  if (!answer || !scored(s)) return false;
+  if (answer !== outcome(s)) return false;
+  return sportOf(s) === "football" || method === s.result.method;
+}
+
+function mark(s, answer, method) {
+  if (!answer || !scored(s)) return "";
+  return hit(s, answer, method) ? `<span class="ok">${icon("check")}</span>` : `<span class="ng">${icon("x")}</span>`;
 }
 
 // ---------- 누적 스코어 ----------
 function renderScoreboard() {
   const box = $("scoreboard");
   if (!seals.length) { box.hidden = true; return; }
-  const done = seals.filter((s) => outcome(s) && aiPick(s) && humanPick(s));
-  $("score-human").textContent = done.filter((s) => humanPick(s) === outcome(s)).length;
-  $("score-ai").textContent = done.filter((s) => aiPick(s) === outcome(s)).length;
+  // 누적 스코어는 종목과 상관없이 모든 회차를 합쳐서 셉니다.
+  const done = seals.filter((s) => scored(s) && aiPick(s) && humanPick(s));
+  $("score-human").textContent = done.filter((s) => hit(s, humanPick(s), humanMethod(s))).length;
+  $("score-ai").textContent = done.filter((s) => hit(s, aiPick(s), aiMethod(s))).length;
   $("score-sub").textContent = done.length
     ? `맞힌 경기 수 · 결과가 나온 ${done.length}경기 기준`
     : "첫 결과를 기다리고 있습니다";
@@ -102,17 +146,26 @@ function renderScoreboard() {
 }
 
 // ---------- 목록 화면 ----------
+function resultLine(s) {
+  // 축구: 2-1 / 격투기: KO/TKO · 2R
+  if (sportOf(s) === "football") return s.result.score;
+  return [s.result.method, s.result.round ? `${s.result.round}R` : null].filter(Boolean).join(" · ") || "-";
+}
+
 function rightSide(s) {
   const out = outcome(s);
+  if (out && !scored(s)) {
+    return `<p class="r-label">${escapeHtml(label(s, out))}</p><p class="r-who">채점하지 않습니다</p>`;
+  }
   if (out) {
     const ai = aiPick(s);
     const hu = humanPick(s);
     const who = [
-      hu ? `사람 ${hu === out ? "✓" : "✗"}` : null,
-      ai ? `AI ${ai === out ? "✓" : "✗"}` : null,
+      hu ? `사람 ${hit(s, hu, humanMethod(s)) ? "✓" : "✗"}` : null,
+      ai ? `AI ${hit(s, ai, aiMethod(s)) ? "✓" : "✗"}` : null,
     ].filter(Boolean).join(" · ");
     return `
-      <p class="r-score">${escapeHtml(s.result.score)}</p>
+      <p class="r-score${sportOf(s) === "mma" ? " small-score" : ""}">${escapeHtml(resultLine(s))}</p>
       <p class="r-label">${escapeHtml(label(s, out))}</p>
       <p class="r-who">${who}</p>`;
   }
@@ -120,29 +173,60 @@ function rightSide(s) {
   return `<p class="r-wait">${started ? "결과 대기" : "경기 전"}</p>`;
 }
 
+// ---------- 종목 탭 (목록만 거릅니다. 누적 스코어는 항상 전체) ----------
+let filter = "all";
+
+function renderTabs() {
+  const tabs = $("sport-tabs");
+  const present = new Set(seals.map(sportOf));
+  if (present.size < 2) { tabs.hidden = true; filter = "all"; return; }
+  const items = [["all", "전체"], ...Object.entries(SPORTS)];
+  tabs.innerHTML = items.map(([key, name]) =>
+    `<button type="button" class="tab${filter === key ? " on" : ""}" data-sport="${key}" aria-pressed="${filter === key}">${name}</button>`
+  ).join("");
+  tabs.hidden = false;
+}
+
+function sportChip(s) {
+  const k = sportOf(s);
+  return `<span class="chip ${k}">${icon(k === "mma" ? "glove" : "ball")}${SPORTS[k]}</span>`;
+}
+
+// 목록에 짧게 보여 줄 예측: 축구 '맨시티 승', 격투기 '페레이라 KO/TKO'
+function pickText(s, answer, method) {
+  if (sportOf(s) === "mma" && method) return `${answer.split(/\s+/).pop()} ${method}`;
+  return label(s, answer);
+}
+
+function matchTitle(s) {
+  return sportOf(s) === "mma" ? `${s.fighter_a} vs ${s.fighter_b}` : s.match;
+}
+
 function renderList() {
   renderScoreboard();
+  renderTabs();
   const list = $("seal-list");
-  if (!seals.length) {
+  const shown = seals.filter((s) => filter === "all" || sportOf(s) === filter);
+  if (!shown.length) {
     list.innerHTML = `<p class="empty">아직 봉인된 회차가 없습니다.</p>`;
     return;
   }
-  const sorted = [...seals].sort((a, b) => b.ep - a.ep); // 최신 회차가 위로
+  const sorted = [...shown].sort((a, b) => b.ep - a.ep); // 최신 회차가 위로
   list.innerHTML = sorted.map((s) => {
     const k = kickoffParts(s.kickoff);
-    const out = outcome(s);
     const ai = aiPick(s);
     const hu = humanPick(s);
     return `
       <a class="row card" href="#ep${s.ep}">
         <div class="row-left">
-          <p class="row-head"><span class="ep">EP${s.ep}</span>${k ? `<span class="date">${k.date}</span>` : ""}</p>
-          <p class="row-match">${escapeHtml(s.match)}</p>
+          <p class="row-head"><span class="ep">EP${s.ep}</span>${sportChip(s)}${k ? `<span class="date">${k.date}</span>` : ""}</p>
+          ${s.event ? `<p class="row-event">${escapeHtml(s.event)}</p>` : ""}
+          <p class="row-match">${escapeHtml(matchTitle(s))}</p>
           <p class="row-pick"><span class="who">AI</span>${ai
-            ? `<b>${escapeHtml(label(s, ai))}</b>${mark(ai, out)}`
+            ? `<b>${escapeHtml(pickText(s, ai, aiMethod(s)))}</b>${mark(s, ai, aiMethod(s))}`
             : `<span class="muted">${icon("lock")}봉인 중</span>`}</p>
           <p class="row-pick"><span class="who">사람</span>${hu
-            ? `<b>${escapeHtml(label(s, hu))}</b>${mark(hu, out)}`
+            ? `<b>${escapeHtml(pickText(s, hu, humanMethod(s)))}</b>${mark(s, hu, humanMethod(s))}`
             : `<span class="muted">집계 전</span>`}</p>
         </div>
         <div class="row-right">${rightSide(s)}</div>
@@ -151,58 +235,80 @@ function renderList() {
 }
 
 // ---------- 상세 화면 ----------
-function renderVotes(s) {
-  const h = s.human;
-  if (!h || !h.total) return `<p class="muted small">킥오프 직후 댓글을 집계해 올립니다.</p>`;
-  const rows = ANSWERS.map((a) => {
-    const n = h.votes[a] || 0;
-    const pct = Math.round((n / h.total) * 100);
-    return `
-      <div class="vote-row${a === h.pick ? " top" : ""}">
-        <span class="vote-label">${escapeHtml(label(s, a))}</span>
+function voteRow(text, n, total, top, sub) {
+  const pct = Math.round((n / total) * 100);
+  return `
+      <div class="vote-row${top ? " top" : ""}${sub ? " sub" : ""}">
+        <span class="vote-label">${escapeHtml(text)}</span>
         <span class="vote-bar"><span class="vote-fill" style="width:${pct}%"></span></span>
         <span class="vote-num">${n.toLocaleString("ko-KR")}표 · ${pct}%</span>
       </div>`;
-  }).join("");
+}
+
+function renderVotes(s) {
+  const h = s.human;
+  if (!h || !h.total) return `<p class="muted small">경기 시작 직후 댓글을 집계해 올립니다.</p>`;
+  let rows;
+  if (sportOf(s) === "mma") {
+    // 선수별 합계 → 그 아래 승리 방식별 표
+    rows = [s.fighter_a, s.fighter_b].map((f) => {
+      const per = MMA_METHODS.map((m) => [m, h.votes[`${f}|${m}`] || 0]);
+      const sum = per.reduce((acc, [, n]) => acc + n, 0);
+      return voteRow(`${f} 승`, sum, h.total, f === h.pick, false) +
+        per.map(([m, n]) => voteRow(m, n, h.total, f === h.pick && m === h.method, true)).join("");
+    }).join("");
+  } else {
+    rows = ANSWERS.map((a) => voteRow(label(s, a), h.votes[a] || 0, h.total, a === h.pick, false)).join("");
+  }
   const file = h.votes_file
     ? ` · <a href="${escapeHtml(h.votes_file)}" download>${icon("file")}집계 댓글 목록</a>`
     : "";
   return `
-    <p class="block-sub">총 ${h.total.toLocaleString("ko-KR")}표 · 킥오프 전 댓글 기준${file}</p>
+    <p class="block-sub">총 ${h.total.toLocaleString("ko-KR")}표 · 경기 시작 전 댓글 기준${file}</p>
     ${rows}`;
 }
 
-function pickBox(s, who, iconName, answer, waitText) {
-  const out = outcome(s);
+function pickBox(s, who, iconName, answer, waitText, method) {
   if (!answer) {
     return `<div class="pick wait"><span class="who-s">${icon(iconName)}${who}</span><span class="ans">${waitText}</span></div>`;
   }
-  const state = !out ? "" : answer === out ? " hit" : " miss";
-  return `<div class="pick${state}"><span class="who-s">${icon(iconName)}${who}</span><span class="ans">${escapeHtml(label(s, answer))}${mark(answer, out)}</span></div>`;
+  const state = !scored(s) ? "" : hit(s, answer, method) ? " hit" : " miss";
+  const how = method ? `<span class="how">${escapeHtml(method)}</span>` : "";
+  return `<div class="pick${state}"><span class="who-s">${icon(iconName)}${who}</span><span class="ans">${escapeHtml(label(s, answer))}${mark(s, answer, method)}</span>${how}</div>`;
+}
+
+function finalLine(s) {
+  const out = outcome(s);
+  if (!out) return "";
+  if (sportOf(s) === "football") {
+    return `<p class="final">경기 결과 <b>${escapeHtml(s.result.score)}</b> · ${escapeHtml(label(s, out))}</p>`;
+  }
+  if (!scored(s)) return `<p class="final">경기 결과 <b>${escapeHtml(label(s, out))}</b> · 채점하지 않습니다</p>`;
+  return `<p class="final">경기 결과 <b>${escapeHtml(label(s, out))}</b> · ${escapeHtml(resultLine(s))}</p>`;
 }
 
 function renderDetail(s) {
   const k = kickoffParts(s.kickoff);
   const open = !!s.revealed_text;
   const video = s.video && safeUrl(s.video);
-  const out = outcome(s);
   $("detail-card").innerHTML = `
     <article class="card detail">
       <div class="seal-head">
         <div>
-          <p class="ep-big">EP${s.ep}</p>
-          <p class="seal-title">${escapeHtml(s.match)}</p>
+          <p class="ep-big">EP${s.ep} ${sportChip(s)}</p>
+          ${s.event ? `<p class="row-event">${escapeHtml(s.event)}</p>` : ""}
+          <p class="seal-title">${escapeHtml(matchTitle(s))}</p>
         </div>
         ${open
           ? `<span class="badge open">${icon("mail-open")}공개됨</span>`
           : `<span class="badge sealed">${icon("lock")}봉인 중</span>`}
       </div>
-      <p class="seal-meta">${k ? `${k.date} ${k.time} 킥오프` : ""}</p>
+      <p class="seal-meta">${k ? `${k.date} ${k.time} ${sportOf(s) === "mma" ? "시작 예정" : "킥오프"}` : ""}</p>
 
-      ${out ? `<p class="final">경기 결과 <b>${escapeHtml(s.result.score)}</b> · ${escapeHtml(label(s, out))}</p>` : ""}
+      ${finalLine(s)}
       <div class="picks">
-        ${pickBox(s, "사람", "users", humanPick(s), "집계 전")}
-        ${pickBox(s, "AI", "cpu", aiPick(s), "봉인 중")}
+        ${pickBox(s, "사람", "users", humanPick(s), "집계 전", humanMethod(s))}
+        ${pickBox(s, "AI", "cpu", aiPick(s), "봉인 중", aiMethod(s))}
       </div>
 
       <div class="block">
@@ -235,9 +341,12 @@ function route() {
     $("result").hidden = true;
     $("text-input").value = "";
     $("hash-input").value = "";
+    $("text-input").placeholder = sportOf(s) === "mma"
+      ? "예) EP0|선수이름|판정|ExampleOnly12345"
+      : "예) EP0|무|ExampleOnly12345";
     $("view-list").hidden = true;
     $("view-detail").hidden = false;
-    document.title = `EP${s.ep} ${s.match} · Man vs AI`;
+    document.title = `EP${s.ep} ${matchTitle(s)} · Man vs AI`;
   } else {
     renderList();
     $("view-detail").hidden = true;
@@ -335,6 +444,13 @@ $("detail-card").addEventListener("click", (e) => {
     $("verify").scrollIntoView({ behavior: "smooth", block: "start" });
     verify();
   }
+});
+
+$("sport-tabs").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-sport]");
+  if (!btn) return;
+  filter = btn.dataset.sport;
+  renderList();
 });
 
 $("verify-btn").addEventListener("click", verify);

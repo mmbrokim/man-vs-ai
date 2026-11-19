@@ -206,3 +206,28 @@ section { margin-bottom: 24px; }
   background: var(--text); color: #fff; padding: 8px 14px; border-radius: 999px; font-size: 14px;
 }
 .detail .final { display: block; margin: 0 0 10px; }
+
+/* 종목 */
+.tabs { display: flex; gap: 6px; margin: 0 0 12px; }
+.tab {
+  min-height: 36px; padding: 6px 14px; border-radius: 999px;
+  border: 1px solid var(--line); background: #fff; color: var(--muted);
+  font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.tab.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tab:focus-visible { outline: 3px solid #E9B88F; outline-offset: 2px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 11.5px; font-weight: 700; padding: 1px 7px; border-radius: 999px;
+  background: var(--sealed-bg); color: var(--sealed-text); vertical-align: 1px;
+}
+.chip.mma { background: #F3DEDA; color: #8E3B2C; }
+.chip svg { font-size: 12px; }
+.row-event { font-size: 12.5px; color: var(--muted); margin: 2px 0 0; }
+.row-event + .row-match, .row-event + .seal-title { margin-top: 0; }
+.r-score.small-score { font-size: 15px; letter-spacing: 0; }
+.vote-row.sub { margin-bottom: 4px; }
+.vote-row.sub .vote-label { padding-left: 12px; font-size: 13px; }
+.vote-row.sub .vote-bar { height: 7px; }
+.pick .how { display: block; font-size: 12.5px; color: var(--muted); font-weight: 600; margin-top: 2px; }
+.pick.hit .how { color: var(--ok-text); }
