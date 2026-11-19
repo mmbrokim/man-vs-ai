@@ -101,12 +101,34 @@ function aiMethod(s) {
   return parts.length === 4 ? parts[2] : null;
 }
 
+// ---------- 정식 회차와 특별 경기 ----------
+// 정식 회차: ep 번호 (EP1, EP2 …), 누적 스코어에 들어갑니다.
+// 특별 경기: special: true, sp 번호 (SP1 …). 사람 쪽은 댓글 대신 제작자 예측이고, 누적 스코어에는 들어가지 않습니다.
+function code(s) {
+  return s.special ? `SP${s.sp}` : `EP${s.ep}`;
+}
+
+function findByCode(c) {
+  return seals.find((s) => code(s) === c.toUpperCase()) || null;
+}
+
+// 사람 쪽 답: 정식 회차는 댓글 다수결, 특별 경기는 제작자 예측
+function humanSide(s) {
+  return s.special ? s.creator : s.human;
+}
+
+function humanLabel(s) {
+  return s.special ? "제작자" : "사람";
+}
+
 function humanPick(s) {
-  return s.human ? s.human.pick : null;
+  const h = humanSide(s);
+  return h ? h.pick : null;
 }
 
 function humanMethod(s) {
-  return s.human ? s.human.method || null : null;
+  const h = humanSide(s);
+  return h ? h.method || null : null;
 }
 
 function outcome(s) {
@@ -136,7 +158,7 @@ function renderScoreboard() {
   const box = $("scoreboard");
   if (!seals.length) { box.hidden = true; return; }
   // 누적 스코어는 종목과 상관없이 모든 회차를 합쳐서 셉니다.
-  const done = seals.filter((s) => scored(s) && aiPick(s) && humanPick(s));
+  const done = seals.filter((s) => !s.special && scored(s) && aiPick(s) && humanPick(s));
   $("score-human").textContent = done.filter((s) => hit(s, humanPick(s), humanMethod(s))).length;
   $("score-ai").textContent = done.filter((s) => hit(s, aiPick(s), aiMethod(s))).length;
   $("score-sub").textContent = done.length
@@ -161,7 +183,7 @@ function rightSide(s) {
     const ai = aiPick(s);
     const hu = humanPick(s);
     const who = [
-      hu ? `사람 ${hit(s, hu, humanMethod(s)) ? "✓" : "✗"}` : null,
+      hu ? `${humanLabel(s)} ${hit(s, hu, humanMethod(s)) ? "✓" : "✗"}` : null,
       ai ? `AI ${hit(s, ai, aiMethod(s)) ? "✓" : "✗"}` : null,
     ].filter(Boolean).join(" · ");
     return `
@@ -198,6 +220,10 @@ function pickText(s, answer, method) {
   return label(s, answer);
 }
 
+function specialChip(s) {
+  return s.special ? `<span class="chip special">${icon("star")}특별 경기</span>` : "";
+}
+
 function matchTitle(s) {
   return sportOf(s) === "mma" ? `${s.fighter_a} vs ${s.fighter_b}` : s.match;
 }
@@ -211,21 +237,21 @@ function renderList() {
     list.innerHTML = `<p class="empty">아직 봉인된 회차가 없습니다.</p>`;
     return;
   }
-  const sorted = [...shown].sort((a, b) => b.ep - a.ep); // 최신 회차가 위로
+  const sorted = [...shown].sort((a, b) => new Date(b.kickoff) - new Date(a.kickoff)); // 최신 경기가 위로
   list.innerHTML = sorted.map((s) => {
     const k = kickoffParts(s.kickoff);
     const ai = aiPick(s);
     const hu = humanPick(s);
     return `
-      <a class="row card" href="#ep${s.ep}">
+      <a class="row card${s.special ? " special" : ""}" href="#${code(s).toLowerCase()}">
         <div class="row-left">
-          <p class="row-head"><span class="ep">EP${s.ep}</span>${sportChip(s)}${k ? `<span class="date">${k.date}</span>` : ""}</p>
+          <p class="row-head"><span class="ep">${code(s)}</span>${sportChip(s)}${specialChip(s)}${k ? `<span class="date">${k.date}</span>` : ""}</p>
           ${s.event ? `<p class="row-event">${escapeHtml(s.event)}</p>` : ""}
           <p class="row-match">${escapeHtml(matchTitle(s))}</p>
           <p class="row-pick"><span class="who">AI</span>${ai
             ? `<b>${escapeHtml(pickText(s, ai, aiMethod(s)))}</b>${mark(s, ai, aiMethod(s))}`
             : `<span class="muted">${icon("lock")}봉인 중</span>`}</p>
-          <p class="row-pick"><span class="who">사람</span>${hu
+          <p class="row-pick"><span class="who">${humanLabel(s)}</span>${hu
             ? `<b>${escapeHtml(pickText(s, hu, humanMethod(s)))}</b>${mark(s, hu, humanMethod(s))}`
             : `<span class="muted">집계 전</span>`}</p>
         </div>
@@ -295,7 +321,7 @@ function renderDetail(s) {
     <article class="card detail">
       <div class="seal-head">
         <div>
-          <p class="ep-big">EP${s.ep} ${sportChip(s)}</p>
+          <p class="ep-big">${code(s)} ${sportChip(s)}${specialChip(s)}</p>
           ${s.event ? `<p class="row-event">${escapeHtml(s.event)}</p>` : ""}
           <p class="seal-title">${escapeHtml(matchTitle(s))}</p>
         </div>
@@ -307,14 +333,17 @@ function renderDetail(s) {
 
       ${finalLine(s)}
       <div class="picks">
-        ${pickBox(s, "사람", "users", humanPick(s), "집계 전", humanMethod(s))}
+        ${pickBox(s, humanLabel(s), "users", humanPick(s), "집계 전", humanMethod(s))}
         ${pickBox(s, "AI", "cpu", aiPick(s), "봉인 중", aiMethod(s))}
       </div>
 
-      <div class="block">
+      ${s.special
+        ? `<div class="block"><p class="block-title">${icon("star")}특별 경기</p>
+            <p class="muted small">이번 경기는 댓글 대신 제작자의 예측과 AI의 예측을 비교합니다. 누적 스코어에는 들어가지 않습니다.</p></div>`
+        : `<div class="block">
         <p class="block-title">${icon("users")}사람들의 선택</p>
         ${renderVotes(s)}
-      </div>
+      </div>`}
 
       <div class="block">
         <p class="block-title">${icon("lock")}AI 답 봉인</p>
@@ -325,17 +354,17 @@ function renderDetail(s) {
           : `<p class="muted small">원문은 결과 편에서 공개합니다.</p>`}
         <div class="actions">
           <button class="btn" type="button" data-copy="${escapeHtml(s.hash)}">${icon("copy")}봉인값 복사</button>
-          ${open ? `<button class="btn" type="button" data-fill="${s.ep}">${icon("down")}원문 채우기</button>` : ""}
+          ${open ? `<button class="btn" type="button" data-fill="${code(s)}">${icon("down")}원문 채우기</button>` : ""}
           ${video ? `<a class="btn" href="${escapeHtml(video)}" target="_blank" rel="noopener">${icon("play")}영상 보기</a>` : ""}
         </div>
       </div>
     </article>`;
 }
 
-// ---------- 화면 전환 (#ep1 이면 상세, 아니면 목록) ----------
+// ---------- 화면 전환 (#ep1, #sp1 이면 상세, 아니면 목록) ----------
 function route() {
-  const m = location.hash.match(/^#ep(\d+)$/);
-  const s = m ? seals.find((x) => x.ep === Number(m[1])) : null;
+  const m = location.hash.match(/^#((?:ep|sp)\d+)$/i);
+  const s = m ? findByCode(m[1]) : null;
   if (s) {
     renderDetail(s);
     $("result").hidden = true;
@@ -346,7 +375,7 @@ function route() {
       : "예) EP0|무|ExampleOnly12345";
     $("view-list").hidden = true;
     $("view-detail").hidden = false;
-    document.title = `EP${s.ep} ${matchTitle(s)} · Man vs AI`;
+    document.title = `${code(s)} ${matchTitle(s)} · Man vs AI`;
   } else {
     renderList();
     $("view-detail").hidden = true;
@@ -381,21 +410,21 @@ async function verify() {
   }
 
   const out = [];
-  const m = normalize(text).match(/^EP(\d+)\|/);
-  const ep = m ? Number(m[1]) : null;
-  const seal = ep !== null ? seals.find((s) => s.ep === ep) : null;
+  const m = normalize(text).match(/^((?:EP|SP)\d+)\|/);
+  const ep = m ? m[1] : null;
+  const seal = ep !== null ? findByCode(ep) : null;
 
   if (seal) {
     out.push(hash === seal.hash
-      ? verdict("ok", `<b>일치합니다.</b> EP${ep} 봉인값과 같습니다.`)
-      : verdict("ng", `<b>일치하지 않습니다.</b> EP${ep} 봉인값과 다릅니다. 원문을 한 글자도 빠짐없이 입력했는지 확인해 주세요.`));
+      ? verdict("ok", `<b>일치합니다.</b> ${ep} 봉인값과 같습니다.`)
+      : verdict("ng", `<b>일치하지 않습니다.</b> ${ep} 봉인값과 다릅니다. 원문을 한 글자도 빠짐없이 입력했는지 확인해 주세요.`));
   } else {
     const any = seals.find((s) => s.hash === hash);
     out.push(any
-      ? verdict("ok", `<b>일치합니다.</b> EP${any.ep} 봉인값과 같습니다.`)
+      ? verdict("ok", `<b>일치합니다.</b> ${code(any)} 봉인값과 같습니다.`)
       : verdict("ng", ep !== null
-        ? `EP${ep} 회차를 목록에서 찾지 못했습니다.`
-        : `<b>일치하는 회차가 없습니다.</b> 원문은 EP로 시작합니다.`));
+        ? `${ep} 회차를 목록에서 찾지 못했습니다.`
+        : `<b>일치하는 회차가 없습니다.</b> 원문은 EP 또는 SP로 시작합니다.`));
   }
 
   const videoHash = $("hash-input").value.trim().toLowerCase();
@@ -438,7 +467,7 @@ $("detail-card").addEventListener("click", (e) => {
   if (!btn) return;
   if (btn.dataset.copy) copy(btn.dataset.copy);
   if (btn.dataset.fill) {
-    const s = seals.find((x) => x.ep === Number(btn.dataset.fill));
+    const s = findByCode(btn.dataset.fill);
     if (!s || !s.revealed_text) return;
     $("text-input").value = s.revealed_text;
     $("verify").scrollIntoView({ behavior: "smooth", block: "start" });

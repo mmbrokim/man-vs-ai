@@ -15,7 +15,7 @@ KST = dt.timezone(dt.timedelta(hours=9))
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("ep", type=int)
+    ap.add_argument("ep", help="회차: 1 또는 EP1")
     ap.add_argument("--home", type=int, help="축구: 홈승 표 수")
     ap.add_argument("--away", type=int, help="축구: 원정승 표 수")
     ap.add_argument("--draw", type=int, help="축구: 무 표 수")
@@ -26,7 +26,9 @@ def main():
     seals = load_json(SEALS, [])
     seal = find(seals, args.ep)
     if seal is None:
-        raise SystemExit(f"seals.json 에 EP{args.ep} 이 없습니다.")
+        raise SystemExit(f"seals.json 에 {args.ep} 이 없습니다.")
+    if seal.get("special"):
+        raise SystemExit("특별 경기는 댓글 집계를 하지 않습니다 (사람 쪽은 제작자 예측).")
 
     if sport_of(seal) == FOOTBALL:
         if None in (args.home, args.draw, args.away):
@@ -54,7 +56,7 @@ def main():
         "votes_file": None,
     }
     save_json(SEALS, seals)
-    print(f"EP{args.ep} 사람의 답: {pick}{' ' + method if method else ''} (총 {seal['human']['total']}표)")
+    print(f"{args.ep} 사람의 답: {pick}{' ' + method if method else ''} (총 {seal['human']['total']}표)")
 
 
 if __name__ == "__main__":

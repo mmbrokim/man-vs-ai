@@ -129,11 +129,35 @@ def parse_kickoff_iso(iso):
     return dt.datetime.fromisoformat(iso)
 
 
-def find(seals, ep):
+# ---------- 회차 이름 ----------
+# 정식 회차: {"ep": 1, ...}  -> EP1   (누적 스코어에 들어감)
+# 특별 경기: {"sp": 1, "special": true, ...} -> SP1   (페이지에는 보이지만 스코어에는 안 들어감)
+def code_of(seal):
+    return f"SP{seal['sp']}" if seal.get("special") else f"EP{seal['ep']}"
+
+
+def parse_ref(ref):
+    """'1', 'EP1', 'ep1' -> 'EP1' / 'SP1', 'sp1' -> 'SP1'"""
+    ref = str(ref).strip().upper()
+    if ref.isdigit():
+        return f"EP{int(ref)}"
+    if ref[:2] in ("EP", "SP") and ref[2:].isdigit():
+        return f"{ref[:2]}{int(ref[2:])}"
+    raise SystemExit(f"회차는 1, EP1, SP1 같은 형식으로 입력하세요: '{ref}'")
+
+
+def find(seals, ref):
+    """ref: 정수(정식 회차 번호) 또는 'EP1' / 'SP1'"""
+    code = f"EP{ref}" if isinstance(ref, int) else parse_ref(ref)
     for s in seals:
-        if s["ep"] == ep:
+        if code_of(s) == code:
             return s
     return None
+
+
+def original_key(code):
+    """private/originals.json 의 키. 정식 회차는 예전처럼 숫자만('1'), 특별 경기는 'SP1'."""
+    return code[2:] if code.startswith("EP") else code
 
 
 def assert_private_is_ignored():

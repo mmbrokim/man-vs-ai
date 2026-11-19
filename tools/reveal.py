@@ -18,7 +18,7 @@
 """
 import argparse
 
-from common import (FOOTBALL, MMA_DRAW, MMA_METHODS, MMA_NO_CONTEST, MMA_UNSCORED, ORIGINALS, SEALS, find, load_json,
+from common import (FOOTBALL, code_of, original_key, MMA_DRAW, MMA_METHODS, MMA_NO_CONTEST, MMA_UNSCORED, ORIGINALS, SEALS, find, load_json,
                     normalize, outcome_from_score, parse_text, save_json, sha256, sport_of)
 
 
@@ -45,7 +45,7 @@ def ox(answer, method, result):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("ep", type=int)
+    ap.add_argument("ep", help="회차: 1, EP1, SP1(특별 경기)")
     ap.add_argument("--score", help="축구: 경기 스코어 (홈-원정), 예: 2-1")
     ap.add_argument("--winner", help="격투기: 1 레드 / 2 블루 / 3 무승부 / 4 무효")
     ap.add_argument("--method", help="격투기: 1 KO/TKO / 2 서브미션 / 3 판정")
@@ -56,9 +56,10 @@ def main():
     seals = load_json(SEALS, [])
     seal = find(seals, args.ep)
     if seal is None:
-        raise SystemExit(f"seals.json 에 EP{args.ep} 이 없습니다.")
+        raise SystemExit(f"seals.json 에 {args.ep} 이 없습니다.")
+    code = code_of(seal)
     if seal.get("revealed_text"):
-        raise SystemExit(f"EP{args.ep} 은 이미 공개되어 있습니다: {seal['revealed_text']}")
+        raise SystemExit(f"{code} 은 이미 공개되어 있습니다: {seal['revealed_text']}")
 
     if sport_of(seal) == FOOTBALL:
         if not args.score:
@@ -83,9 +84,10 @@ def main():
         text = normalize(args.text)
     else:
         originals = load_json(ORIGINALS, {})
-        if str(args.ep) not in originals:
-            raise SystemExit(f"private/originals.json 에 EP{args.ep} 원문이 없습니다. --text 로 직접 입력하세요.")
-        text = originals[str(args.ep)]["text"]
+        key = original_key(code)
+        if key not in originals:
+            raise SystemExit(f"private/originals.json 에 {code} 원문이 없습니다. --text 로 직접 입력하세요.")
+        text = originals[key]["text"]
 
     if sha256(text) != seal["hash"]:
         raise SystemExit("중단: 원문의 해시가 봉인값과 다릅니다. 원문을 확인하세요.")
@@ -95,12 +97,15 @@ def main():
     save_json(SEALS, seals)
 
     ai = parse_text(text)
-    human = seal.get("human") or {}
-    print(f"EP{args.ep} 공개 완료: {text} (해시 일치 확인)")
+    human = seal.get("creator") if seal.get("special") else seal.get("human") or {}
+    print(f"{code} 공개 완료: {text} (해시 일치 확인)")
     print(f"경기 결과: {summary}")
     print(f"AI: {ox(ai['pick'], ai['method'], result)}")
-    print(f"사람: {ox(human.get('pick'), human.get('method'), result)}")
-    print(f"다음 순서: git add public && git commit -m \"EP{args.ep} 공개\" && git push")
+    who = "제작자" if seal.get("special") else "사람"
+    print(f"{who}: {ox(human.get('pick'), human.get('method'), result)}")
+    if seal.get("special"):
+        print("특별 경기라 누적 스코어에는 들어가지 않습니다.")
+    print(f"다음 순서: git add public && git commit -m \"{code} 공개\" && git push")
 
 
 if __name__ == "__main__":

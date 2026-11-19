@@ -80,7 +80,7 @@ pip install -r model/requirements.txt    # 축구, 격투기 모델 공통
 - 랜덤 문자열은 가능한 답을 모두 해시로 바꿔 보는 방식으로 답을 미리 알아내는 것을 막습니다.
 - 해시 계산: 앞뒤 공백 제거 → 유니코드 NFC 정규화 → UTF-8 → SHA-256.
   `public/app.js`와 `tools/common.py`가 같은 규칙을 씁니다. NFC 정규화는 Mac에서 한글 자모가 분리되는 문제를 막습니다.
-- 종목은 `seals.json`의 `sport` 칸(`football`, `mma`)으로 구분합니다.
+- 종목은 `seals.json`의 `sport` 칸(`football`, `mma`)으로 구분합니다. 특별 경기는 `EP` 대신 `SP`로 시작합니다.
 
 ### 사람 쪽 답 (댓글 집계)
 
@@ -100,6 +100,24 @@ pip install -r model/requirements.txt    # 축구, 격투기 모델 공통
 
 - **축구**: 홈승 / 무 / 원정승을 맞히면 1점
 - **격투기**: 승자와 승리 방식을 모두 맞혀야 1점. 결과가 무승부나 무효 경기면 그 회차는 채점하지 않습니다.
+
+### 특별 경기
+
+은퇴전처럼 정식 대결과 따로 다루고 싶은 경기는 **특별 경기**로 올립니다.
+
+- 번호는 `SP1`, `SP2` …로 따로 붙고, 정식 회차 번호(EP)와 누적 스코어에는 들어가지 않습니다.
+- 사람 쪽은 댓글 집계 대신 **제작자 예측**입니다. 제작자 예측은 처음부터 공개되고, AI 답은 정식 회차와 똑같이 봉인합니다.
+- 페이지에는 '특별 경기' 표시와 함께 목록에 나옵니다.
+
+```bash
+# 봉인: --answer/--method 는 AI 답, --mine/--mine-method 는 제작자 예측
+python tools/seal.py --special --sport mma --event "블랙컴뱃 17" --fighter-a 추성훈 --fighter-b "크리스 리벤" \
+    --kickoff "2026-11-21 19:00" --answer 2 --method 1 --mine 1 --mine-method 1
+python tools/video.py SP1 https://youtube.com/shorts/xxxx
+python tools/reveal.py SP1 --winner 1 --method 1 --round 2
+```
+
+특별 경기는 `tally.py`, `votes.py`를 쓰지 않습니다. 원문은 `SP1|크리스 리벤|KO/TKO|랜덤`처럼 SP로 시작합니다.
 
 ## 예측 모델
 

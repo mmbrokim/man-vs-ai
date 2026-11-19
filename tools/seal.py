@@ -11,7 +11,11 @@
     python tools/seal.py --sport mma --ep 2 --event "UFC 323" --fighter-a 페레이라 --fighter-b 안칼라예프 \\
         --kickoff "2026-12-07 12:00" --answer 1 --method 1
 
-회차 번호는 종목과 상관없이 하나로 이어서 셉니다.
+    특별 경기 (스코어에 넣지 않음, 사람 쪽은 제작자 예측. 번호는 SP1, SP2 … 자동):
+    python tools/seal.py --special --sport mma --event "블랙컴뱃 17" --fighter-a 추성훈 --fighter-b "크리스 리벤" \
+        --kickoff "2026-11-21 19:00" --answer 2 --method 1 --mine 1 --mine-method 1
+
+회차 번호는 종목과 상관없이 하나로 이어서 셉니다. 특별 경기는 SP 번호를 따로 씁니다.
 
 하는 일:
     1) 16자 랜덤 문자열을 만들어 원문을 만듭니다.
@@ -27,7 +31,8 @@ import secrets
 import string
 
 from common import (ANSWERS, FOOTBALL, MMA, MMA_METHODS, ORIGINALS, SEALS, SPORTS,
-                    assert_private_is_ignored, check_name, find, load_json, normalize, save_json, sha256)
+                    assert_private_is_ignored, check_name, find, load_json, normalize, original_key,
+                    save_json, sha256)
 
 SALT_LEN = 16
 SALT_ALPHABET = string.ascii_letters + string.digits  # '|' 나 공백은 들어가지 않음
@@ -74,30 +79,44 @@ def main():
     ap.add_argument("--fighter-a", help="격투기: 레드 코너 선수")
     ap.add_argument("--fighter-b", help="격투기: 블루 코너 선수")
     ap.add_argument("--method", help="격투기: 1 KO/TKO / 2 서브미션 / 3 판정")
+    # 특별 경기
+    ap.add_argument("--special", action="store_true", help="특별 경기로 봉인 (스코어에 넣지 않음)")
+    ap.add_argument("--mine", help="특별 경기: 제작자 예측 (축구: 홈승/무/원정승, 격투기: 1 레드 / 2 블루)")
+    ap.add_argument("--mine-method", help="특별 경기(격투기): 제작자 예측 승리 방식 1/2/3")
     args = ap.parse_args()
 
     assert_private_is_ignored()
 
     sport = pick(ask("종목 (1 축구 / 2 격투기): ", args.sport), [FOOTBALL, MMA], "종목")
-    ep = int(ask("회차 (종목과 상관없이 이어지는 번호): ", args.ep))
-
     seals = load_json(SEALS, [])
     originals = load_json(ORIGINALS, {})
-    if find(seals, ep) or str(ep) in originals:
-        raise SystemExit(f"EP{ep} 은 이미 봉인되어 있습니다. 봉인은 다시 할 수 없습니다.")
-    last = max((s["ep"] for s in seals), default=0)
-    if ep != last + 1:
-        print(f"주의: 마지막 회차는 EP{last} 입니다. EP{ep} 으로 봉인합니다.")
+
+    if args.special:
+        # 특별 경기 번호는 자동으로 다음 번호
+        n = max((s["sp"] for s in seals if s.get("special")), default=0) + 1
+        code = f"SP{n}"
+        entry = {"sp": n, "special": True, "sport": sport}
+    else:
+        ep = int(ask("회차 (종목과 상관없이 이어지는 번호): ", args.ep))
+        code = f"EP{ep}"
+        last = max((s["ep"] for s in seals if not s.get("special")), default=0)
+        if ep != last + 1:
+            print(f"주의: 마지막 회차는 EP{last} 입니다. EP{ep} 으로 봉인합니다.")
+        entry = {"ep": ep, "sport": sport}
+    if find(seals, code) or original_key(code) in originals:
+        raise SystemExit(f"{code} 은 이미 봉인되어 있습니다. 봉인은 다시 할 수 없습니다.")
 
     salt = "".join(secrets.choice(SALT_ALPHABET) for _ in range(SALT_LEN))
-    entry = {"ep": ep, "sport": sport}
 
     if sport == FOOTBALL:
         match = normalize(ask("경기 (예: 맨시티 vs 풀럼): ", args.match))
         kickoff = parse_kickoff(ask("킥오프 (한국 시간, 예: 2026-11-21 21:30): ", args.kickoff))
         answer = pick(ask(f"답 ({menu(ANSWERS)}): ", args.answer), ANSWERS, "답")
-        text = f"EP{ep}|{answer}|{salt}"
+        text = f"{code}|{answer}|{salt}"
         entry.update({"match": match})
+        if args.special:
+            mine = pick(ask(f"제작자 예측 ({menu(ANSWERS)}): ", args.mine), ANSWERS, "제작자 예측")
+            entry["creator"] = {"pick": mine, "method": None}
     else:
         event = normalize(ask("대회 (예: UFC 323): ", args.event))
         a = check_name(ask("레드 코너 선수: ", args.fighter_a))
@@ -107,8 +126,12 @@ def main():
         kickoff = parse_kickoff(ask("경기 시작 예정 (한국 시간, 메인카드 시작 시각): ", args.kickoff))
         answer = pick(ask(f"이길 선수 ({menu([a, b])}): ", args.answer), [a, b], "이길 선수")
         method = pick(ask(f"승리 방식 ({menu(MMA_METHODS)}): ", args.method), MMA_METHODS, "승리 방식")
-        text = f"EP{ep}|{answer}|{method}|{salt}"
+        text = f"{code}|{answer}|{method}|{salt}"
         entry.update({"event": event, "fighter_a": a, "fighter_b": b, "match": f"{a} vs {b}"})
+        if args.special:
+            mine = pick(ask(f"제작자 예측 이길 선수 ({menu([a, b])}): ", args.mine), [a, b], "제작자 예측")
+            mine_m = pick(ask(f"제작자 예측 승리 방식 ({menu(MMA_METHODS)}): ", args.mine_method), MMA_METHODS, "승리 방식")
+            entry["creator"] = {"pick": mine, "method": mine_m}
 
     if kickoff <= dt.datetime.now(KST):
         print("주의: 시작 시각이 이미 지났습니다. 봉인은 경기 전에 해야 의미가 있습니다.")
@@ -116,7 +139,7 @@ def main():
     digest = sha256(text)
 
     # 원문을 먼저 비공개 파일에 저장하고, 그다음에 해시를 공개 파일에 씁니다.
-    originals[str(ep)] = {"text": text, "sealed_at": dt.datetime.now(KST).isoformat(timespec="seconds")}
+    originals[original_key(code)] = {"text": text, "sealed_at": dt.datetime.now(KST).isoformat(timespec="seconds")}
     save_json(ORIGINALS, originals)
 
     entry.update({
@@ -128,18 +151,21 @@ def main():
         "result": None,
     })
     seals.append(entry)
-    seals.sort(key=lambda s: s["ep"])
+    seals.sort(key=lambda s: s["kickoff"])
     save_json(SEALS, seals)
 
     print()
-    print(f"[{SPORTS[sport]}] EP{ep} {entry['match']}")
+    print(f"[{SPORTS[sport]}{' · 특별 경기' if args.special else ''}] {code} {entry['match']}")
+    if args.special:
+        c = entry["creator"]
+        print(f"제작자 예측 (공개): {c['pick']}{' ' + c['method'] if c['method'] else ''}")
     print(f"원문 (비공개, 결과 편 전까지 아무에게도 보여 주지 마세요): {text}")
     print("  → private/originals.json 에 저장했습니다.")
     print()
     print("영상에 넣을 봉인값:")
     print(digest)
     print()
-    print("다음 순서: git add public/seals.json && git commit -m \"EP%d 봉인\" && git push" % ep)
+    print(f"다음 순서: git add public/seals.json && git commit -m \"{code} 봉인\" && git push")
 
 
 if __name__ == "__main__":

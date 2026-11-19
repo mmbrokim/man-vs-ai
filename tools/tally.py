@@ -33,7 +33,7 @@ import re
 import urllib.parse
 import urllib.request
 
-from common import (FOOTBALL, PRIVATE_DIR, ROOT, SEALS, choices, find, load_json, majority,
+from common import (FOOTBALL, PRIVATE_DIR, code_of, ROOT, SEALS, choices, find, load_json, majority,
                     normalize, parse_kickoff_iso, save_json, sport_of, vote_key)
 
 API = "https://www.googleapis.com/youtube/v3/commentThreads"
@@ -173,14 +173,17 @@ def tally(items, seal, cutoff):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("ep", type=int)
+    ap.add_argument("ep", help="회차: 1 또는 EP1")
     ap.add_argument("video")
     args = ap.parse_args()
 
     seals = load_json(SEALS, [])
     seal = find(seals, args.ep)
     if seal is None:
-        raise SystemExit(f"seals.json 에 EP{args.ep} 이 없습니다.")
+        raise SystemExit(f"seals.json 에 {args.ep} 이 없습니다.")
+    if seal.get("special"):
+        raise SystemExit("특별 경기는 댓글 집계를 하지 않습니다 (사람 쪽은 제작자 예측).")
+    code = code_of(seal)
     cutoff = parse_kickoff_iso(seal["kickoff"])
     now = dt.datetime.now(KST)
     if now < cutoff:
@@ -194,7 +197,7 @@ def main():
         raise SystemExit("유효한 표가 없습니다. 집계를 기록하지 않았습니다.")
 
     VOTES_DIR.mkdir(parents=True, exist_ok=True)
-    votes_file = VOTES_DIR / f"EP{args.ep}.csv"
+    votes_file = VOTES_DIR / f"{code}.csv"
     with open(votes_file, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["comment_id", "published_at", "choice"])
@@ -211,19 +214,19 @@ def main():
         "counted_at": now.isoformat(timespec="seconds"),
         "source": "youtube",
         "video_id": vid,
-        "votes_file": f"votes/EP{args.ep}.csv",
+        "votes_file": f"votes/{code}.csv",
         "stats": stats,
     }
     if not seal.get("video"):
         seal["video"] = f"https://youtube.com/shorts/{vid}"
     save_json(SEALS, seals)
 
-    print(f"EP{args.ep} 집계 완료 · 총 {total}표")
+    print(f"{code} 집계 완료 · 총 {total}표")
     for a in choices(seal):
         print(f"  {a:14s} {votes[a]:5d}표  {votes[a] / total:6.1%}")
     print(f"사람의 답: {pick}{' ' + method if method else ''}")
     print("제외:", ", ".join(f"{k} {v}" for k, v in stats.items() if k != "댓글 수"))
-    print(f"다음 순서: git add public && git commit -m \"EP{args.ep} 집계\" && git push")
+    print(f"다음 순서: git add public && git commit -m \"{code} 집계\" && git push")
 
 
 if __name__ == "__main__":

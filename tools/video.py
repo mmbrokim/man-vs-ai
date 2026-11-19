@@ -5,12 +5,12 @@
 """
 import argparse
 
-from common import SEALS, find, load_json, save_json
+from common import SEALS, code_of, find, load_json, save_json
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("ep", type=int)
+    ap.add_argument("ep", help="회차: 1, EP1, SP1(특별 경기)")
     ap.add_argument("url")
     args = ap.parse_args()
 
@@ -19,10 +19,10 @@ def main():
     seals = load_json(SEALS, [])
     seal = find(seals, args.ep)
     if seal is None:
-        raise SystemExit(f"seals.json 에 EP{args.ep} 이 없습니다.")
+        raise SystemExit(f"seals.json 에 {args.ep} 이 없습니다.")
     seal["video"] = args.url
     save_json(SEALS, seals)
-    print(f"EP{args.ep} 영상 링크를 넣었습니다: {args.url}")
+    print(f"{code_of(seal)} 영상 링크를 넣었습니다: {args.url}")
 
 
 if __name__ == "__main__":
